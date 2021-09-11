@@ -1,0 +1,15 @@
+#!/bin/bash
+
+#SBATCH --job-name=test
+#SBATCH --output=%x_%A.out
+#SBATCH --error=%x_%A.err
+#SBATCH --account=vf38
+#SBATCH --time=00:01:00
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --gres=gpu:2
+#SBATCH --partition=m3g
+
+. /home/$USER/vf38_scratch/horovod/Davide/scripts/activate_env_main
+
+python3 /home/$USER/vf38_scratch/horovod/Davide/models/test.py
