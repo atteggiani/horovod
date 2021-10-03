@@ -12,7 +12,7 @@ Valid <OPTION> values are:
 -h, --help:
                 Print this description of use
 
--t, --timeline=<path-to-timeline.json>:
+-t, --timeline[=<path-to-timeline.json>]:
                 Saves horovod timeline file to the specified path
 
 EOF
@@ -24,7 +24,7 @@ while getopts ht:-: opt; do
         -)
             case "$OPTARG" in
                 timeline)
-                    timeline_file="${!OPTIND}"
+                    timeline_file="$(readlink -f ${!OPTIND})"
                     OPTIND="$(( $OPTIND + 1 ))"
                     ;;
                 help)
@@ -36,7 +36,7 @@ while getopts ht:-: opt; do
                     exit 1
             esac;;
         t)
-            timeline_file="$OPTARG"
+            timeline_file="$(readlink -f ${OPTARG})"
             ;;
         h)  
             usage
@@ -46,6 +46,7 @@ while getopts ht:-: opt; do
             exit 1
     esac
 done
+shift $(( $OPTIND - 1 ))
 
 # Predefined options
 options+="-bind-to none -map-by slot -genv NCCL_DEBUG WARN -genvlist LD_LIBRARY_PATH,PATH "
@@ -117,6 +118,4 @@ done
 # Bind computing nodes and allocated resources
 options+="-hosts ${hosts%,} "
 
-echo $options
-# runstr="mpirun ${options} python $1"
-# $runstr
+mpirun ${options} python3 $(readlink -f $1)
