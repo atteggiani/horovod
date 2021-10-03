@@ -1,1 +1,6 @@
 miniconda/
+__pycache__/
+
+*.swp
+*.err
+*.out

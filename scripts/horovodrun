@@ -1,0 +1,122 @@
+#!/bin/bash
+
+PROGNAME=$(basename $0)
+
+usage() {
+  cat << EOF
+Usage: $PROGNAME [<OPTION>] <path-to-script>
+Runs a python script with horovod.
+It can automatically detect the computing nodes and resources (GPUs) allocated to each of them.
+
+Valid <OPTION> values are:
+-h, --help:
+                Print this description of use
+
+-t, --timeline=<path-to-timeline.json>:
+                Saves horovod timeline file to the specified path
+
+EOF
+  exit 1
+}
+
+while getopts ht:-: opt; do
+    case $opt in
+        -)
+            case "$OPTARG" in
+                timeline)
+                    timeline_file="${!OPTIND}"
+                    OPTIND="$(( $OPTIND + 1 ))"
+                    ;;
+                help)
+                    usage
+                    ;;
+                *)
+                    echo "Uknown option --${OPTARG}."
+                    echo "Try '${PROGNAME} --help' for more information."
+                    exit 1
+            esac;;
+        t)
+            timeline_file="$OPTARG"
+            ;;
+        h)  
+            usage
+            ;;
+        *)      
+            echo "Try '${PROGNAME} --help' for more information."
+            exit 1
+    esac
+done
+
+# Predefined options
+options+="-bind-to none -map-by slot -genv NCCL_DEBUG WARN -genvlist LD_LIBRARY_PATH,PATH "
+
+if [[ $timeline_file ]]
+then
+    options+="-env HOROVOD_TIMELINE=${timeline_file} -env HOROVOD_TIMELINE_MARK_CYCLES=0 "
+fi
+
+# Get info about current job
+info=$(scontrol show job $SLURM_JOB_ID)
+
+# Get total number of gpus allocated to current job
+ngpus=$(grep -Po "(?<=gres/gpu=)\d*" <<< $info)
+# If gpus are not found raise return an error and exit the program
+if [[ -z "$ngpus" ]]
+then
+    echo "No gpus found. Please request at least 1 gpu when you run horovod."
+    exit 10
+else
+# Otherwise bind number of horovod processes to tot number of gpus
+    options+="-np $ngpus "
+fi
+
+# Find computing nodes and allocated resources
+str=($(echo "$info" | grep -Po "(?<=AdminComment=).*?(?=\s)" | tr ";" " "))
+for s in ${str[@]} #For all the different computing nodes' strings
+do
+    gpus=($(echo "$s" | grep -Po "(?<=gpu:).*?(?=\()" | tr "," " "))
+    n=0
+    if [[ "$gpus" ]] #If there is any gpu associated with the node(s)
+    then
+        # Get total gpus associated with the node(s)
+        for gpu in ${gpus[@]} 
+        do
+            (( n+=$(echo "$gpu" | grep -Po "(?<=:)\d+|^\d+") ))
+        done
+        host=$(grep -Po "(?<=^\|).*?(?=\|)" <<< $s)
+        host=($(grep -Po "(^m3.*?(?=,m3)|(?<=,)m3.*(?=,m3)|m3.*?$)"<<<$host))
+        for h in ${host[@]} #For all the nodes' names/numbers
+        do  
+            hname=$(grep -Po "^m3."<<<$h) #Get the name
+            # Get the ID number(s)
+            if [[ $h =~ m3.[[:digit:]]{3} ]] #If there is only one number associated
+            then
+                hosts+=$(printf "${hname}%03d:${n}," ${h:3:3}) #Get host ID
+            else
+                # Get all the ID numbers
+                hid=($(echo "$h" | grep -Po "(?<=m3.\[).*(?=\])" | tr "," " "))
+                for id in ${hid[@]}
+                do
+                    [[ "$id" =~ ^(.{3})-?(.{3})? ]]
+                    if [[ ${BASH_REMATCH[2]} ]]
+                    then
+                        hnum=$(seq ${BASH_REMATCH[1]} ${BASH_REMATCH[2]})
+                    else
+                        hnum=${BASH_REMATCH[1]}
+                    fi
+                    for num in $hnum
+                    do
+                        hosts+=$(printf "${hname}%03d:${n}," $num)
+                    done
+                done
+            fi
+        done
+    fi
+done
+
+# Bind computing nodes and allocated resources
+options+="-hosts ${hosts%,} "
+
+echo $options
+# runstr="mpirun ${options} python $1"
+# $runstr

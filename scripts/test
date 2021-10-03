@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# info=$(scontrol show job $SLURM_JOB_ID)
+info=$(cat<<EOF
+gres/gpu=4 /dmar0022 AdminComment=|m3p000,m3f[003,005-007]|0-3|gpu:P4:2(IDX:0-1)|;|m3p001|3-6|gpu:P4:2(IDX:1-2)|; StdErr=/home/dmar0022/.strudel2-D
+EOF
+)
+# Find computing nodes and allocated resources
+str=($(echo "$info" | grep -Po "(?<=AdminComment=).*?(?=\s)" | tr ";" " "))
+for s in ${str[@]} #For all the different computing nodes' strings
+do
+    gpus=($(echo "$s" | grep -Po "(?<=gpu:).*?(?=\()" | tr "," " "))
+    n=0
+    if [[ "$gpus" ]] #If there is any gpu associated with the node(s)
+    then
+        # Get total gpus associated with the node(s)
+        for gpu in ${gpus[@]} 
+        do
+            (( n+=$(echo "$gpu" | grep -Po "(?<=:)\d+|^\d+") ))
+        done
+        host=$(grep -Po "(?<=^\|).*?(?=\|)" <<< $s)
+        host=($(grep -Po "(^m3.*?(?=,m3)|(?<=,)m3.*(?=,m3)|m3.*?$)"<<<$host))
+        for h in ${host[@]} #For all the nodes' names/numbers
+        do  
+            hname=$(grep -Po "^m3."<<<$h) #Get the name
+            # Get the ID number(s)
+            if [[ $h =~ m3.[[:digit:]]{3} ]] #If there is only one number associated
+            then
+                hosts+=$(printf "${hname}%03d:${n}," ${h:3:3}) #Get host ID
+            else
+                # Get all the ID numbers
+                hid=($(echo "$h" | grep -Po "(?<=m3.\[).*(?=\])" | tr "," " "))
+                for id in ${hid[@]}
+                do
+                    [[ "$id" =~ ^(.{3})-?(.{3})? ]]
+                    if [[ ${BASH_REMATCH[2]} ]]
+                    then
+                        hnum=$(seq ${BASH_REMATCH[1]} ${BASH_REMATCH[2]})
+                    else
+                        hnum=${BASH_REMATCH[1]}
+                    fi
+                    for num in $hnum
+                    do
+                        hosts+=$(printf "${hname}%03d:${n}," $num)
+                    done
+                done
+            fi
+        done
+    fi
+done
+echo $hosts

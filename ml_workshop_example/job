@@ -3,24 +3,25 @@
 #SBATCH --output=slurm-%j.out
 #SBATCH --error=slurm-%j.err
 #SBATCH --account=vf38
-#SBATCH --nodes=1
-#SBATCH --gres=gpu:2
-#SBATCH --ntasks-per-node=2
+#SBATCH --nodes=2
+#SBATCH --gres=gpu:4
+#SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=7
+#SBATCH --gpus-per-node=2
 #SBATCH --mem-per-cpu=12G
-#SBATCH --partition=m3g
-#SBATCH --time=00:01:00
-
-export HOROVOD_CUDA_HOME=$CUDA_HOME
-export HOROVOD_GPU_OPERATIONS=NCCL
+#SBATCH --partition=m3h
+#SBATCH --time=00:10:00
 
 # Activate horovod environment
 . /home/dmar0022/vf38_scratch/horovod/Davide/scripts/activate horovod-env
+model_script=/home/dmar0022/vf38_scratch/horovod/Davide/ml_workshop_example/multi-fashion-mnist.py
+export HOROVOD_CUDA_HOME=$CUDA_HOME
+export HOROVOD_GPU_OPERATIONS=NCCL
 
 mpiexec -np ${SLURM_NTASKS} \
     -env HOROVOD_TIMELINE=timeline.json \
-    -env HOROVOOD_TIMELINE_MARK_CYCLES=0 \
+    -env HOROVOD_TIMELINE_MARK_CYCLES=0 \
     -bind-to none -map-by slot \
     -genv NCCL_DEBUG WARN \
     -genvlist LD_LIBRARY_PATH,PATH \
-    python multi-fashion-minst.py
+    python $model_script

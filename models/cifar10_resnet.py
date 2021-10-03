@@ -1,4 +1,7 @@
-from __future__ import print_function
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+# from __future__ import print_function
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.layers import Dense, Conv2D, BatchNormalization, Activation
@@ -12,7 +15,6 @@ from tensorflow.keras import backend as K
 from tensorflow.keras.models import Model
 from tensorflow.keras.datasets import cifar10
 import numpy as np
-import os
 
 # Defines the number of CPUs to be workers for the model's fit_generator function
 num_cpus = 4     
@@ -102,7 +104,12 @@ def lr_schedule(epoch):
         lr *= 1e-2
     elif epoch > 80:
         lr *= 1e-1
-    print('Learning rate: ', lr)
+
+    if epoch == 0:
+        print(f'Initial learning rate: {lr}')
+    else:
+        print(f'Learning rate: {lr}')
+
     return lr
 
 def resnet_layer(inputs,
@@ -219,7 +226,7 @@ def resnet_v1(input_shape, depth, num_classes=10):
                     kernel_initializer='he_normal')(y)
 
     # Instantiate model.
-    model = Model(inputs=inputs, outputs=outputs)
+    model = Model(inputs=inputs, outputs=outputs, name = model_type)
     return model
 
 def resnet_v2(input_shape, depth, num_classes=10):
@@ -314,7 +321,7 @@ def resnet_v2(input_shape, depth, num_classes=10):
                     kernel_initializer='he_normal')(y)
 
     # Instantiate model.
-    model = Model(inputs=inputs, outputs=outputs)
+    model = Model(inputs=inputs, outputs=outputs, name = model_type)
     return model
 
 
@@ -332,111 +339,115 @@ if gpus:
         print(e)
 
 # Create a Strategy.
-mirrored_strategy = tf.distribute.MirroredStrategy(cross_device_ops=tf.distribute.HierarchicalCopyAllReduce())
-print("Number of devices: {}".format(mirrored_strategy.num_replicas_in_sync))
+strategy = tf.distribute.MirroredStrategy(cross_device_ops=tf.distribute.HierarchicalCopyAllReduce())
+print("Number of devices: {}".format(strategy.num_replicas_in_sync))
 
-# Open a strategy scope.
-with mirrored_strategy.scope():
-    # Everything that creates variables should be under the strategy scope.
-    # In general this is only model construction & `compile()`.
-    if version == 2:
-        model = resnet_v2(input_shape=input_shape, depth=depth)
+def main():
+    # Open a strategy scope.
+    with strategy.scope():
+        # Everything that creates variables should be under the strategy scope.
+        # In general this is only model construction & `compile()`.
+        if version == 2:
+            model = resnet_v2(input_shape=input_shape, depth=depth)
+        else:
+            model = resnet_v1(input_shape=input_shape, depth=depth)
+
+        model.compile(loss='categorical_crossentropy',
+                    optimizer=Adam(lr=lr_schedule(0)),
+                    metrics=['accuracy'])
+        model.summary()
+
+    # Prepare model model saving directory.
+    save_dir = os.path.join(os.getcwd(), 'saved_models')
+    model_name = 'cifar10_%s_model.{epoch:03d}.h5' % model_type
+    # if not os.path.isdir(save_dir):
+    #     os.makedirs(save_dir)
+    filepath = os.path.join(save_dir, model_name)
+
+    # Prepare callbacks for model saving and for learning rate adjustment.
+    checkpoint = ModelCheckpoint(filepath=filepath,
+                                monitor='val_accuracy',
+                                verbose=1,
+                                save_best_only=True)
+    lr_scheduler = LearningRateScheduler(lr_schedule)
+
+    lr_reducer = ReduceLROnPlateau(factor=np.sqrt(0.1),
+                                cooldown=0,
+                                patience=5,
+                                min_lr=0.5e-6)
+
+    callbacks = [lr_reducer, lr_scheduler]
+    # callbacks = [checkpoint, lr_reducer, lr_scheduler]
+
+
+    # Run training, with or without data augmentation.
+    if not data_augmentation:
+        print('Not using data augmentation.')
+        model.fit(x_train, y_train,
+                batch_size=batch_size,
+                epochs=epochs,
+                validation_data=(x_test, y_test),
+                shuffle=True,
+                callbacks=callbacks)
     else:
-        model = resnet_v1(input_shape=input_shape, depth=depth)
+        print('Using real-time data augmentation.')
+        # This will do preprocessing and realtime data augmentation:
+        datagen = ImageDataGenerator(
+            # set input mean to 0 over the dataset
+            featurewise_center=False,
+            # set each sample mean to 0
+            samplewise_center=False,
+            # divide inputs by std of dataset
+            featurewise_std_normalization=False,
+            # divide each input by its std
+            samplewise_std_normalization=False,
+            # apply ZCA whitening
+            zca_whitening=False,
+            # epsilon for ZCA whitening
+            zca_epsilon=1e-06,
+            # randomly rotate images in the range (deg 0 to 180)
+            rotation_range=0,
+            # randomly shift images horizontally
+            width_shift_range=0.1,
+            # randomly shift images vertically
+            height_shift_range=0.1,
+            # set range for random shear
+            shear_range=0.,
+            # set range for random zoom
+            zoom_range=0.,
+            # set range for random channel shifts
+            channel_shift_range=0.,
+            # set mode for filling points outside the input boundaries
+            fill_mode='nearest',
+            # value used for fill_mode = "constant"
+            cval=0.,
+            # randomly flip images
+            horizontal_flip=True,
+            # randomly flip images
+            vertical_flip=False,
+            # set rescaling factor (applied before any other transformation)
+            rescale=None,
+            # set function that will be applied on each input
+            preprocessing_function=None,
+            # image data format, either "channels_first" or "channels_last"
+            data_format=None,
+            # fraction of images reserved for validation (strictly between 0 and 1)
+            validation_split=0.0)
 
-    model.compile(loss='categorical_crossentropy',
-                optimizer=Adam(lr=lr_schedule(0)),
-                metrics=['accuracy'])
-    model.summary()
-    print(model_type)
+        # Compute quantities required for featurewise normalization
+        # (std, mean, and principal components if ZCA whitening is applied).
+        datagen.fit(x_train)
 
-# Prepare model model saving directory.
-save_dir = os.path.join(os.getcwd(), 'saved_models')
-model_name = 'cifar10_%s_model.{epoch:03d}.h5' % model_type
-if not os.path.isdir(save_dir):
-    os.makedirs(save_dir)
-filepath = os.path.join(save_dir, model_name)
+        # Fit the model on the batches generated by datagen.flow().
+        model.fit_generator(datagen.flow(x_train, y_train, batch_size=batch_size),
+                            validation_data=(x_test, y_test),
+                            epochs=epochs, verbose=1, workers=num_cpus,
+                            callbacks=callbacks)
 
-# Prepare callbacks for model saving and for learning rate adjustment.
-checkpoint = ModelCheckpoint(filepath=filepath,
-                             monitor='val_accuracy',
-                             verbose=1,
-                             save_best_only=True)
-lr_scheduler = LearningRateScheduler(lr_schedule)
+    # Score trained model.
+    scores = model.evaluate(x_test, y_test, verbose=1)
+    print('Test loss:', scores[0])
+    print('Test accuracy:', scores[1])
 
-lr_reducer = ReduceLROnPlateau(factor=np.sqrt(0.1),
-                               cooldown=0,
-                               patience=5,
-                               min_lr=0.5e-6)
-
-callbacks = [checkpoint, lr_reducer, lr_scheduler]
-
-
-# Run training, with or without data augmentation.
-if not data_augmentation:
-    print('Not using data augmentation.')
-    model.fit(x_train, y_train,
-              batch_size=batch_size,
-              epochs=epochs,
-              validation_data=(x_test, y_test),
-              shuffle=True,
-              callbacks=callbacks)
-else:
-    print('Using real-time data augmentation.')
-    # This will do preprocessing and realtime data augmentation:
-    datagen = ImageDataGenerator(
-        # set input mean to 0 over the dataset
-        featurewise_center=False,
-        # set each sample mean to 0
-        samplewise_center=False,
-        # divide inputs by std of dataset
-        featurewise_std_normalization=False,
-        # divide each input by its std
-        samplewise_std_normalization=False,
-        # apply ZCA whitening
-        zca_whitening=False,
-        # epsilon for ZCA whitening
-        zca_epsilon=1e-06,
-        # randomly rotate images in the range (deg 0 to 180)
-        rotation_range=0,
-        # randomly shift images horizontally
-        width_shift_range=0.1,
-        # randomly shift images vertically
-        height_shift_range=0.1,
-        # set range for random shear
-        shear_range=0.,
-        # set range for random zoom
-        zoom_range=0.,
-        # set range for random channel shifts
-        channel_shift_range=0.,
-        # set mode for filling points outside the input boundaries
-        fill_mode='nearest',
-        # value used for fill_mode = "constant"
-        cval=0.,
-        # randomly flip images
-        horizontal_flip=True,
-        # randomly flip images
-        vertical_flip=False,
-        # set rescaling factor (applied before any other transformation)
-        rescale=None,
-        # set function that will be applied on each input
-        preprocessing_function=None,
-        # image data format, either "channels_first" or "channels_last"
-        data_format=None,
-        # fraction of images reserved for validation (strictly between 0 and 1)
-        validation_split=0.0)
-
-    # Compute quantities required for featurewise normalization
-    # (std, mean, and principal components if ZCA whitening is applied).
-    datagen.fit(x_train)
-
-    # Fit the model on the batches generated by datagen.flow().
-    model.fit_generator(datagen.flow(x_train, y_train, batch_size=batch_size),
-                        validation_data=(x_test, y_test),
-                        epochs=epochs, verbose=1, workers=num_cpus,
-                        callbacks=callbacks)
-
-# Score trained model.
-scores = model.evaluate(x_test, y_test, verbose=1)
-print('Test loss:', scores[0])
-print('Test accuracy:', scores[1])
+if __name__ == "__main__":
+    main()

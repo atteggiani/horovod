@@ -8,9 +8,9 @@ then
         main)
             module load cuda/11.0
         ;;
-        horovod-env)
+        horovod-env*)
             module load cuda/11.0
-            module load nccl/2.10.30-cuda11.0
+            module load nccl/2.10.3-cuda11.0
         ;;
     esac
     . /fs03/vf38/dmar0022/miniconda/bin/activate /fs03/vf38/dmar0022/miniconda/conda/envs/$1
