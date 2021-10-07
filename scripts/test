@@ -1,63 +1,7 @@
 #!/bin/bash
 
-PROGNAME=$(basename $0)
-
-usage() {
-  cat << EOF
-Usage: $PROGNAME [<OPTION>] <path-to-script>
-Runs a python script with horovod.
-It can automatically detect the computing nodes and resources (GPUs) allocated to each of them.
-
-Valid <OPTION> values are:
--h, --help:
-                Print this description of use
-
--t, --timeline=<path-to-timeline.json>:
-                Saves horovod timeline file to the specified path
-
-EOF
-  exit 1
-}
-
-while getopts ht:-: opt; do
-    case $opt in
-        -)
-            case "$OPTARG" in
-                timeline)
-                    timeline_file="${!OPTIND}"
-                    OPTIND="$(( $OPTIND + 1 ))"
-                    ;;
-                help)
-                    usage
-                    ;;
-                *)
-                    echo "Uknown option --${OPTARG}."
-                    echo "Try '${PROGNAME} --help' for more information."
-                    exit 1
-            esac;;
-        t)
-            timeline_file="$OPTARG"
-            ;;
-        h)  
-            usage
-            ;;
-        *)      
-            echo "Try '${PROGNAME} --help' for more information."
-            exit 1
-    esac
-done
-shift $(( $OPTIND - 1 ))
-
-# Predefined options
-options+="-bind-to none -map-by slot -genv NCCL_DEBUG WARN -genvlist LD_LIBRARY_PATH,PATH "
-
-if [[ $timeline_file ]]
-then
-    options+="-env HOROVOD_TIMELINE=${timeline_file} -env HOROVOD_TIMELINE_MARK_CYCLES=0 "
-fi
-
 # Get info about current job
-info=$(scontrol show job $SLURM_JOB_ID)
+info=$(cat /fs03/vf38/horovod/Davide/scripts/hvd_fashion-mnist-20841112.out)
 
 # Get total number of gpus allocated to current job
 ngpus=$(grep -Po "(?<=gres/gpu=)\d*" <<< $info)
@@ -92,7 +36,7 @@ do
             # Get the ID number(s)
             if [[ $h =~ m3.[[:digit:]]{3} ]] #If there is only one number associated
             then
-                hosts+=$(printf "${hname}%03d:${n}," ${h:3:3}) #Get host ID
+                hosts+=$(printf "${hname}${h:3:3}:${n}," ) #Get host ID
             else
                 # Get all the ID numbers
                 hid=($(echo "$h" | grep -Po "(?<=m3.\[).*(?=\])" | tr "," " "))
@@ -103,11 +47,12 @@ do
                     then
                         hnum=$(seq ${BASH_REMATCH[1]} ${BASH_REMATCH[2]})
                     else
-                        hnum=${BASH_REMATCH[1]}
+                        hnum=${BASH_REMATCH[1]##*(0)}
                     fi
                     for num in $hnum
                     do
-                        hosts+=$(printf "${hname}%03d:${n}," $num)
+                        # hosts+=$(printf "${hname}%03d:${n}," $num)
+                        echo $num
                     done
                 done
             fi
@@ -118,4 +63,5 @@ done
 # Bind computing nodes and allocated resources
 options+="-hosts ${hosts%,} "
 
-echo $1
+echo "mpirun ${options}"
+# mpirun ${options} python3 $(readlink -f $1)

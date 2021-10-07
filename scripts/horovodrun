@@ -48,6 +48,7 @@ while getopts ht:-: opt; do
 done
 shift $(( $OPTIND - 1 ))
 
+shopt -s extglob
 # Predefined options
 options+="-bind-to none -map-by slot -genv NCCL_DEBUG WARN -genvlist LD_LIBRARY_PATH,PATH "
 
@@ -92,7 +93,7 @@ do
             # Get the ID number(s)
             if [[ $h =~ m3.[[:digit:]]{3} ]] #If there is only one number associated
             then
-                hosts+=$(printf "${hname}%03d:${n}," ${h:3:3}) #Get host ID
+                hosts+="${hname}${h:3:3}:${n}," #Get host ID
             else
                 # Get all the ID numbers
                 hid=($(echo "$h" | grep -Po "(?<=m3.\[).*(?=\])" | tr "," " "))
@@ -103,7 +104,7 @@ do
                     then
                         hnum=$(seq ${BASH_REMATCH[1]} ${BASH_REMATCH[2]})
                     else
-                        hnum=${BASH_REMATCH[1]}
+                        hnum=${BASH_REMATCH[1]##+(0)}
                     fi
                     for num in $hnum
                     do
@@ -117,5 +118,8 @@ done
 
 # Bind computing nodes and allocated resources
 options+="-hosts ${hosts%,} "
+
+echo "mpirun ${options} python3 $(readlink -f $1)"
+scontrol show job $SLURM_JOB_ID
 
 mpirun ${options} python3 $(readlink -f $1)
