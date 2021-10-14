@@ -212,25 +212,18 @@ EOF
 # activate miniconda environments
 . /fs03/vf38/$USER/miniconda/bin/activate
 
-# Install mamba if not already installed
-# if [[ $(which mamba) != "$CONDA_PREFIX/bin/mamba" ]]
-# then
-#     conda install mamba
-# fi
-
 # Load modules
 module purge
 module load cuda/11.0
-module load nccl/2.10.30-cuda11.0
+module load nccl/2.10.3-cuda11.0
 
 # set relevant build variables for horovod
 export ENV_PREFIX=$CONDA_PREFIX/conda/envs/horovod-env
 export HOROVOD_CUDA_HOME=$CUDA_HOME
 export HOROVOD_GPU_OPERATIONS=NCCL
 export NCCL_ROOT=/usr/local/nccl/2.10.3-cuda11.0
-# export HOROVOD_WITH_TENSORFLOW=1
+export HOROVOD_WITH_TENSORFLOW=1
 
-# Had to change the gcc/gxx versions of conda to be 8.4.0 (instead of 9.3.0) for incompatibility
 conda env create --prefix $ENV_PREFIX --file $env_file 
 
 conda activate $ENV_PREFIX
