@@ -93,7 +93,10 @@ do
             # Get the ID number(s)
             if [[ $h =~ m3.[[:digit:]]{3} ]] #If there is only one number associated
             then
-                hosts+="${hname}${h:3:3}:${n}," #Get host ID
+                hostname="${hname}${h:3:3}"
+                ip=$(ssh $hostname hostname -i)
+                hosts+="${hostname}:${n}," #Get host ID
+                hostsIP+="${ip}:${n},"
             else
                 # Get all the ID numbers
                 hid=($(echo "$h" | grep -Po "(?<=m3.\[).*(?=\])" | tr "," " "))
@@ -108,7 +111,10 @@ do
                     fi
                     for num in $hnum
                     do
-                        hosts+=$(printf "${hname}%03d:${n}," $num)
+                        hostname=$(printf "${hname}%03d" $num)
+                        ip=$(ssh $hostname hostname -i)
+                        hosts+="${hostname}:${n},"
+                        hostsIP+="${ip}:${n},"
                     done
                 done
             fi
@@ -117,7 +123,8 @@ do
 done
 
 # Bind computing nodes and allocated resources
-options+="-hosts ${hosts%,} "
+# options+="-hosts ${hosts%,} "
+options+="-hosts ${hostsIP%,} "
 
 echo "mpirun ${options} python3 $(readlink -f $1)"
 scontrol show job $SLURM_JOB_ID
