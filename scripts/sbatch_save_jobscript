@@ -1,0 +1,94 @@
+#!/bin/bash
+
+# Modify this to automatically save the jobscript files to the desired folder
+AUTO_PATH="/home/$USER/vf38_scratch/horovod/Davide/saved_jobscripts"
+
+usage() {
+    PROGNAME=$(basename $0)
+    cat << EOF
+
+Script created by Davide Marchegiani (davide.marchegiani@monash.edu)
+
+Usage: $PROGNAME [<OPTION>] [<SBATCH-OPTIONS>] <path-to-jobscript>
+
+Running '$PROGNAME [<SBATCH-OPTIONS>] <path-to-jobscript>' it's the same as running 'sbatch [<SBATCH-OPTIONS>] <path-to-jobscript>', 
+with the addition that the jobscript file (with the relative options converted to SBATCH flags) will be automatically saved to the specified path or default folder.
+
+Valid <OPTION> values are:
+-h, --help:
+                Print this description of use
+
+--path <path-to-saved-jobscript-file>:
+                Saves jobscript file to the specified path.
+                If this is not provided, the program automatically saves the file in the folder '${AUTO_PATH}'.
+                The name of the saved jobscript file will be 'job-<jobID>', where jobID is the correspective ID of the submitted job.
+                To change the folder where the program automatically saves the file, modify AUTO_PATH at line 4 of this script.
+
+EOF
+  exit 1
+}
+
+options_to_sbatch_flags(){
+    options="$1"
+    match="\-{1,2}[^ =]+([\s=][^\- ]+)?"
+    
+    for flag in "$(grep -Po "$match" <<< "$options")"
+    do
+        # flags=($(tr " " "=" <<< "$f"))
+        echo -e "$flag" | tr " " "="
+    done
+}
+
+while [ 1 ]
+do
+    case "$1" in
+        -h | --help)
+            usage
+            ;;
+        --path)
+            shift
+            if [[ ${!OPTIND} ]]
+            then
+                outpath="$(readlink -f ${!OPTIND})"
+                shift
+            else
+                echo "Please specify output path after '--path'."
+                exit 1
+            fi
+            continue
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+sbatch_options=${@:1:$#-1}
+jobscript=$(readlink -f ${@: -1})
+
+echo "sbatch ${sbatch_options} ${jobscript}"
+
+ID=$(sbatch $sbatch_options $jobscript | cut -d" " -f4)
+echo "Submitted batch job ${ID}"
+
+if [[ $outpath ]]
+then
+    saved_jobscript_path="$outpath"
+else
+    saved_jobscript_path="${AUTO_PATH}/job-${ID}"
+fi
+
+cp $jobscript $saved_jobscript_path
+
+if ! [[ $(head "$saved_jobscript_path" -n1) =~ ^\#\!/ ]]
+then
+    sed -i "1i #!/bin/bash" $saved_jobscript_path
+fi
+
+# Insert sbatch options as SBATCH flags in the jobscript
+count=1
+for m in $(options_to_sbatch_flags "$sbatch_options")
+do
+    ((count+=1))
+    sed -i "${count}i #SBATCH $m" $saved_jobscript_path
+done

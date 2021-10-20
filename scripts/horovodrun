@@ -94,7 +94,7 @@ do
             if [[ $h =~ m3.[[:digit:]]{3} ]] #If there is only one number associated
             then
                 hostname="${hname}${h:3:3}"
-                ip=$(ssh $hostname hostname -i)
+                ip=$(ssh $hostname hostname -i | grep -Po "(\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3})$")
                 hosts+="${hostname}:${n}," #Get host ID
                 hostsIP+="${ip}:${n},"
             else
@@ -112,7 +112,7 @@ do
                     for num in $hnum
                     do
                         hostname=$(printf "${hname}%03d" $num)
-                        ip=$(ssh $hostname hostname -i)
+			            ip=$(ssh $hostname hostname -i | grep -Po "(\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3})$")
                         hosts+="${hostname}:${n},"
                         hostsIP+="${ip}:${n},"
                     done
