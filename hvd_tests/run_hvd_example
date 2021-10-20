@@ -1,0 +1,24 @@
+#!/bin/bash
+
+#SBATCH --job-name=hvd_fashion-mnist_4gpus_4nodes
+#SBATCH --output=%x-%j.out
+#SBATCH --error=%x-%j.err
+#SBATCH --account=vf38
+#SBATCH --hint=nomultithread
+#SBATCH --time=00:10:00
+#SBATCH --mem-per-cpu=12G
+#SBATCH --cpus-per-task=4
+#SBATCH --mail-user=davide.marchegiani@monash.edu
+#SBATCH --mail-type=BEGIN
+#SBATCH --qos=shortq
+
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus=4
+#SBATCH --nodes=4
+#SBATCH --partition=m3g
+
+
+# Activate horovod environment
+. /home/dmar0022/vf38_scratch/horovod/Davide/scripts/activate horovod-env
+
+/home/dmar0022/vf38_scratch/horovod/Davide/scripts/horovodrun /home/dmar0022/vf38_scratch/horovod/Davide/models/hvd_fashion-mnist.py
